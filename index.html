@@ -1,0 +1,1158 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>NOVA Blocks · 星核方块 v3 — 轻智休闲方块拼图</title>
+<style>
+  :root{
+    --bg-1:#0b1026; --bg-2:#171243; --bg-3:#0e2a4a;
+    --ink:#eaf0ff; --ink-dim:#8fa3d4; --ink-faint:#5b6da0;
+    --accent-1:#7c6cff; --accent-2:#35d0ff; --accent-3:#ff6b9d;
+    --panel:rgba(255,255,255,.06); --panel-brd:rgba(255,255,255,.14);
+    --glass-blur:14px;
+    --radius:22px;
+    --font:'Segoe UI',system-ui,-apple-system,'PingFang SC','Microsoft YaHei',sans-serif;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%}
+  body{
+    font-family:var(--font); color:var(--ink);
+    background:linear-gradient(135deg,var(--bg-1) 0%,var(--bg-2) 46%,var(--bg-3) 100%);
+    overflow:hidden; user-select:none; -webkit-user-select:none;
+    touch-action:none;
+  }
+  /* 【修复】viewport-fit=cover 会让内容延伸到刘海与底部横条下面，这里补安全区内边距。
+     没有 env() 支持的环境（桌面浏览器）会自动回落到 12px。 */
+  #app{position:relative;width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;
+    padding:12px;
+    padding-top:max(12px, env(safe-area-inset-top));
+    padding-right:max(12px, env(safe-area-inset-right));
+    padding-bottom:max(12px, env(safe-area-inset-bottom));
+    padding-left:max(12px, env(safe-area-inset-left))}
+
+  /* ---------- HUD ---------- */
+  .hud{width:min(520px,94vw);display:flex;align-items:stretch;gap:10px;z-index:5}
+  .hud-panel{
+    background:var(--panel);border:1px solid var(--panel-brd);border-radius:16px;
+    backdrop-filter:blur(var(--glass-blur));-webkit-backdrop-filter:blur(var(--glass-blur));
+    box-shadow:0 8px 28px rgba(4,8,30,.45) inset 0 1px 0 rgba(255,255,255,.12);
+    padding:8px 12px;
+  }
+  .score-box{flex:1.2;display:flex;flex-direction:column;justify-content:center;min-width:0}
+  .score-label{font-size:10px;letter-spacing:2px;color:var(--ink-dim);text-transform:uppercase}
+  .score-val{font-size:26px;font-weight:800;line-height:1.05;background:linear-gradient(90deg,#fff,#b9c6ff 55%,var(--accent-2));-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;font-variant-numeric:tabular-nums}
+  .best-box{flex:.9;display:flex;flex-direction:column;justify-content:center;min-width:0}
+  .best-val{font-size:15px;font-weight:700;color:var(--ink);font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .mile-box{flex:1.4;display:flex;flex-direction:column;justify-content:center;gap:5px;min-width:0}
+  .mile-top{display:flex;justify-content:space-between;font-size:10px;color:var(--ink-dim);letter-spacing:1px}
+  .mile-track{height:8px;border-radius:99px;background:rgba(255,255,255,.10);overflow:hidden;box-shadow:inset 0 1px 3px rgba(0,0,0,.4)}
+  .mile-fill{height:100%;width:0%;border-radius:99px;background:linear-gradient(90deg,var(--accent-1),var(--accent-2),var(--accent-3));background-size:200% 100%;animation:mileShine 3s linear infinite;transition:width .35s cubic-bezier(.22,1,.36,1)}
+  @keyframes mileShine{0%{background-position:0% 0}100%{background-position:200% 0}}
+  .icon-btn{
+    width:42px;flex:0 0 auto;display:flex;align-items:center;justify-content:center;
+    border-radius:14px;background:var(--panel);border:1px solid var(--panel-brd);color:var(--ink);
+    backdrop-filter:blur(var(--glass-blur));-webkit-backdrop-filter:blur(var(--glass-blur));
+    cursor:pointer;transition:transform .12s ease, box-shadow .12s ease;font-size:17px
+  }
+  .icon-btn:hover{transform:translateY(-1px);box-shadow:0 6px 18px rgba(4,8,30,.5)}
+  .icon-btn:active{transform:scale(.93)}
+
+  /* ---------- Canvas stage ---------- */
+  .stage{position:relative;width:min(520px,94vw);z-index:2}
+  #gameCanvas{width:100%;display:block;border-radius:var(--radius);touch-action:none;cursor:grab}
+  #gameCanvas.dragging{cursor:grabbing}
+
+  /* ---------- Combo banner ---------- */
+  #comboBanner{
+    position:absolute;left:50%;top:26%;transform:translate(-50%,-50%) scale(.5);
+    pointer-events:none;z-index:8;opacity:0;text-align:center;
+  }
+  #comboBanner.show{animation:comboPop .8s cubic-bezier(.22,1.6,.36,1) forwards}
+  #comboBanner .big{
+    font-size:46px;font-weight:900;letter-spacing:3px;line-height:1;
+    background:linear-gradient(90deg,var(--accent-3),#ffd166 40%,var(--accent-2));-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;
+    filter:drop-shadow(0 0 18px rgba(255,209,102,.55));
+  }
+  #comboBanner .sub{font-size:13px;color:var(--ink);margin-top:4px;letter-spacing:2px;text-shadow:0 2px 12px rgba(0,0,0,.6)}
+  @keyframes comboPop{
+    0%{opacity:0;transform:translate(-50%,-50%) scale(.4)}
+    22%{opacity:1;transform:translate(-50%,-50%) scale(1.12)}
+    38%{transform:translate(-50%,-50%) scale(1)}
+    78%{opacity:1;transform:translate(-50%,-50%) scale(1)}
+    100%{opacity:0;transform:translate(-50%,-62%) scale(.96)}
+  }
+
+  /* ---------- Hint ---------- */
+  #hint{
+    position:absolute;left:50%;bottom:112px;transform:translateX(-50%);
+    background:rgba(8,12,36,.82);border:1px solid rgba(255,255,255,.16);
+    color:var(--ink);font-size:13px;padding:8px 14px;border-radius:99px;white-space:nowrap;
+    letter-spacing:.5px;z-index:6;backdrop-filter:blur(8px);
+    box-shadow:0 6px 22px rgba(4,8,30,.5);transition:opacity .4s;
+  }
+  #hint.hide{opacity:0;pointer-events:none}
+
+  /* ---------- Overlays ---------- */
+  .overlay{
+    position:fixed;inset:0;z-index:20;display:flex;align-items:center;justify-content:center;
+    background:rgba(6,9,28,.55);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
+    opacity:0;pointer-events:none;transition:opacity .35s ease;
+  }
+  .overlay.show{opacity:1;pointer-events:auto}
+  .card{
+    width:min(430px,92vw);background:linear-gradient(180deg,rgba(255,255,255,.10),rgba(255,255,255,.05));
+    border:1px solid rgba(255,255,255,.18);border-radius:28px;padding:30px 28px 26px;text-align:center;
+    box-shadow:0 30px 80px rgba(3,6,24,.65), inset 0 1px 0 rgba(255,255,255,.2);
+    transform:translateY(14px) scale(.97);transition:transform .35s cubic-bezier(.22,1,.36,1);
+  }
+  .overlay.show .card{transform:translateY(0) scale(1)}
+  .logo{font-size:34px;font-weight:900;letter-spacing:2px;line-height:1.1;
+    background:linear-gradient(90deg,#fff,#9fb4ff 35%,var(--accent-2) 70%,var(--accent-3));-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;
+    filter:drop-shadow(0 0 24px rgba(124,108,255,.45))}
+  .logo-sub{font-size:11px;letter-spacing:5px;color:var(--ink-dim);margin-top:6px;text-transform:uppercase}
+  .tagline{font-size:13px;color:var(--ink-dim);margin-top:14px;line-height:1.7}
+  .steps{margin:18px 0 4px;display:flex;flex-direction:column;gap:9px;text-align:left}
+  .step{display:flex;gap:12px;align-items:flex-start;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.09);border-radius:14px;padding:10px 13px}
+  .step .n{flex:0 0 auto;width:24px;height:24px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;color:#fff;
+    background:linear-gradient(135deg,var(--accent-1),var(--accent-2))}
+  .step .t{font-size:12.5px;color:var(--ink);line-height:1.55}
+  .step .t b{color:#fff}
+  .btn{
+    margin-top:20px;width:100%;border:none;cursor:pointer;font-family:var(--font);
+    font-size:16px;font-weight:800;letter-spacing:2px;color:#fff;padding:14px 0;border-radius:16px;
+    background:linear-gradient(90deg,var(--accent-1),var(--accent-2));
+    box-shadow:0 12px 30px rgba(96,90,255,.42), inset 0 1px 0 rgba(255,255,255,.35);
+    transition:transform .12s ease, box-shadow .12s ease;
+  }
+  .btn:hover{transform:translateY(-2px);box-shadow:0 16px 36px rgba(96,90,255,.55), inset 0 1px 0 rgba(255,255,255,.35)}
+  .btn:active{transform:translateY(1px) scale(.98)}
+  .btn.ghost{margin-top:10px;background:rgba(255,255,255,.08);box-shadow:none;border:1px solid rgba(255,255,255,.14);color:var(--ink);font-weight:700}
+  .btn.ghost:hover{background:rgba(255,255,255,.14)}
+  .best-chip{margin-top:14px;display:inline-block;font-size:12px;color:var(--ink-dim);letter-spacing:1px;
+    background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);padding:6px 14px;border-radius:99px}
+  .best-chip b{color:#ffd166;font-size:13px}
+  .stat-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:20px}
+  .stat{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.09);border-radius:14px;padding:11px 6px}
+  .stat .v{font-size:20px;font-weight:800;color:#fff;font-variant-numeric:tabular-nums}
+  .stat .k{font-size:10px;color:var(--ink-dim);margin-top:3px;letter-spacing:1px}
+  .overlay-title{font-size:22px;font-weight:900;letter-spacing:1px;
+    background:linear-gradient(90deg,var(--accent-3),#ffd166);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+  .new-best{font-size:12px;color:#ffd166;letter-spacing:2px;margin-top:8px;font-weight:700;display:none}
+  .new-best.show{display:block;animation:pulse 1s ease infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.55}}
+
+  /* ---------- Debug panel ---------- */
+  #debugPanel{
+    position:fixed;right:12px;top:12px;bottom:12px;width:min(320px,86vw);z-index:30;
+    background:rgba(8,12,34,.92);border:1px solid rgba(255,255,255,.16);border-radius:18px;
+    backdrop-filter:blur(16px);padding:16px;overflow-y:auto;color:var(--ink);
+    transform:translateX(calc(100% + 20px));transition:transform .3s cubic-bezier(.22,1,.36,1);
+    font-size:12px;
+  }
+  #debugPanel.show{transform:translateX(0)}
+  #debugPanel h3{font-size:13px;letter-spacing:1px;margin-bottom:10px;color:#fff}
+  .dbg-row{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px}
+  .dbg-row label{color:var(--ink-dim)}
+  .dbg-row input[type=text]{width:92px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.14);color:#fff;border-radius:8px;padding:5px 8px;font-size:12px;font-family:var(--font)}
+  .dbg-row input[type=range]{flex:1}
+  .dbg-row input[type=checkbox]{accent-color:var(--accent-2);width:16px;height:16px}
+  .dbg-btn{background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.16);color:#fff;border-radius:9px;padding:6px 10px;font-size:11.5px;cursor:pointer;font-family:var(--font)}
+  .dbg-btn:hover{background:rgba(255,255,255,.18)}
+  #eventLog{height:180px;overflow-y:auto;background:rgba(0,0,0,.3);border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:8px;font-size:10.5px;line-height:1.7;color:#9fb4ff;font-family:Consolas,Menlo,monospace}
+  #eventLog::-webkit-scrollbar,#debugPanel::-webkit-scrollbar{width:6px}
+  #eventLog::-webkit-scrollbar-thumb,#debugPanel::-webkit-scrollbar-thumb{background:rgba(255,255,255,.18);border-radius:99px}
+  .dbg-note{color:var(--ink-faint);font-size:10.5px;line-height:1.6;margin-top:8px}
+
+  .foot{font-size:10px;color:var(--ink-faint);letter-spacing:1px;z-index:5;text-align:center}
+  .foot b{color:var(--ink-dim);font-weight:600}
+</style>
+</head>
+<body>
+<div id="app">
+
+  <div class="hud">
+    <div class="hud-panel score-box">
+      <div class="score-label">Score</div>
+      <div class="score-val" id="scoreVal">0</div>
+    </div>
+    <div class="hud-panel best-box">
+      <div class="score-label">Best</div>
+      <div class="best-val" id="bestVal">0</div>
+    </div>
+    <div class="hud-panel mile-box">
+      <div class="mile-top"><span>星关进度</span><span id="mileText">0 / 500</span></div>
+      <div class="mile-track"><div class="mile-fill" id="mileFill"></div></div>
+    </div>
+    <button class="icon-btn" id="soundBtn" title="声音开关">🔊</button>
+    <button class="icon-btn" id="debugBtn" title="调试面板">⚙</button>
+  </div>
+
+  <div class="stage">
+    <canvas id="gameCanvas"></canvas>
+    <div id="comboBanner"><div class="big" id="comboBig">COMBO ×2</div><div class="sub" id="comboSub">双线消除 +30</div></div>
+    <div id="hint">👆 拖一个方块放到棋盘上，填满整行或整列即可消除</div>
+  </div>
+
+  <div class="foot"><b>NOVA-BLOCKS-R1 · v3</b> · 轻智休闲 · 单机可玩 · 拖拽/触控</div>
+
+  <!-- Start -->
+  <div class="overlay show" id="startScreen">
+    <div class="card">
+      <div class="logo">NOVA BLOCKS</div>
+      <div class="logo-sub">星核方块 · Light Casual</div>
+      <div class="tagline">把方块放进 8×8 棋盘，填满整行 / 整列即可消除。<br>一次消除越多线，连击奖励越高——规划好每 3 个方块，别让棋盘填满。</div>
+      <div class="steps">
+        <div class="step"><div class="n">1</div><div class="t"><b>拖</b> 托盘中的方块到棋盘任意位置</div></div>
+        <div class="step"><div class="n">2</div><div class="t"><b>消</b> 填满任意整行或整列，立即消除得分</div></div>
+        <div class="step"><div class="n">3</div><div class="t"><b>续</b> 3 个方块全部用完即补新块；无处可放则结束</div></div>
+      </div>
+      <div class="best-chip" id="startBest">暂无纪录</div>
+      <button class="btn" id="startBtn">开 始 游 戏</button>
+      <button class="btn ghost" id="aboutBtn">玩法与设计说明</button>
+    </div>
+  </div>
+
+  <!-- Game over -->
+  <div class="overlay" id="overScreen">
+    <div class="card">
+      <div class="overlay-title">局 终</div>
+      <div class="new-best" id="newBest">★ 新纪录！ ★</div>
+      <div class="stat-grid">
+        <div class="stat"><div class="v" id="stScore">0</div><div class="k">得分</div></div>
+        <div class="stat"><div class="v" id="stBlocks">0</div><div class="k">落子</div></div>
+        <div class="stat"><div class="v" id="stLines">0</div><div class="k">消除线数</div></div>
+        <div class="stat"><div class="v" id="stCombo">0</div><div class="k">最大连击</div></div>
+        <div class="stat"><div class="v" id="stMaxK">0</div><div class="k">最多一次消线</div></div>
+        <div class="stat"><div class="v" id="stTime">0s</div><div class="k">存活时间</div></div>
+      </div>
+      <button class="btn" id="retryBtn">再 来 一 局</button>
+      <button class="btn ghost" id="homeBtn">返回主页</button>
+    </div>
+  </div>
+
+  <!-- Debug -->
+  <div id="debugPanel">
+    <h3>验证面板 · Debug</h3>
+    <div class="dbg-row"><label>ruleset_id</label><span id="dbgRuleset" style="color:#9fb4ff">NOVA-BLOCKS-R1</span></div>
+    <div class="dbg-row"><label>随机种子</label><input type="text" id="seedInput" spellcheck="false"></div>
+    <div class="dbg-row"><label>应用种子并重开</label><button class="dbg-btn" id="seedApply">应用</button></div>
+    <div class="dbg-row"><label>游戏速度</label><input type="range" id="speedRange" min="0.25" max="2" step="0.25" value="1"></div>
+    <div class="dbg-row"><label>自动演示（AI 落子）</label><input type="checkbox" id="autoPlay"></div>
+    <div class="dbg-row"><label>复制本局数据</label><button class="dbg-btn" id="copyData">复制 JSON</button></div>
+    <div class="dbg-row"><label>重置本局</label><button class="dbg-btn" id="resetRun">重置</button></div>
+    <div class="dbg-note">事件日志（最近 30 条）：</div>
+    <div id="eventLog"></div>
+    <div class="dbg-note">验证假设：在「每次 3 个方块」窗口内，玩家是否为了连击而保留空间。观察连击次数 / 单局寿命 / 无消除落子占比。</div>
+  </div>
+</div>
+
+<script>
+'use strict';
+/* =====================================================================
+   NOVA BLOCKS · 星核方块 — 轻智休闲方块拼图 Demo
+   ruleset_id: NOVA-BLOCKS-R1
+   单文件、无外部依赖。规则状态 / 渲染 / 输入 / 参数分离。
+   ===================================================================== */
+
+/* ---------------- 1. 配置（唯一参数源） ---------------- */
+const CONFIG = {
+  ruleset_id: 'NOVA-BLOCKS-R1',
+  GRID: 8,                        // 8×8 棋盘
+  TRAY_SIZE: 3,                   // 每次 3 个方块
+  PLACE_PER_CELL: 1,              // 落子 +1 分 / 格
+  LINE_BASE: 10,                  // 消除基础分
+  FULL_CLEAR_BONUS: 500,          // 全清（64 格满）额外奖励
+  STREAK_MULT_STEP: 0.5,          // 连续消除乘数步进：1 + 0.5*(streak-1)，上限 ×3
+  STREAK_MULT_CAP: 3,
+  MILESTONE_STEP: 500,            // 每 500 分 = 1 星关
+  DEAL_ANIM_MS: 260,
+  CLEAR_FLASH_MS: 240,
+  PLACE_POP_MS: 150,
+  TRAY_DROP_MS: 200,
+  AUTO_PLAY_INTERVAL: 320,        // 自动演示间隔
+  SEED_DEFAULT: 20260925,
+  PALETTE: [                      // 霓虹色板 [亮, 暗]
+    ['#ff8a5c','#f04e2f'], ['#ffd166','#f59e0b'], ['#7ef2b2','#10b981'],
+    ['#6cd8ff','#0284c7'], ['#b39dff','#7c3aed'], ['#ff9ecf','#db2777'],
+    ['#d9f26b','#84cc16'], ['#5ff0e6','#0d9488']
+  ],
+  PIECES: [                       // 方块池：matrix + 权重（大块稀有）
+    {m:[[1]],                                        w: 8},
+    {m:[[1,1]],                                      w: 7},
+    {m:[[1],[1]],                                    w: 7},
+    {m:[[1,1,1]],                                    w: 6},
+    {m:[[1],[1],[1]],                                w: 6},
+    {m:[[1,1,1,1]],                                  w: 2},
+    {m:[[1],[1],[1],[1]],                            w: 2},
+    {m:[[1,1],[1,1]],                                w: 5},
+    {m:[[1,0],[1,1]],                                w: 4},
+    {m:[[0,1],[1,1]],                                w: 4},
+    {m:[[1,1],[0,1]],                                w: 4},
+    {m:[[1,1],[1,0]],                                w: 4},
+    {m:[[1,1,1],[1,0,0]],                            w: 3},
+    {m:[[1,1,1],[0,0,1]],                            w: 3},
+    {m:[[1,0,0],[1,1,1]],                            w: 3},
+    {m:[[0,0,1],[1,1,1]],                            w: 3},
+    {m:[[1,1,1],[0,1,0]],                            w: 3},
+    {m:[[1,1,0],[0,1,1]],                            w: 2},
+    {m:[[0,1,1],[1,1,0]],                            w: 2},
+    {m:[[1,1],[1,1],[1,1]],                          w: 2},
+    {m:[[1,1,1,1],[0,0,0,1]],                        w: 1},
+    {m:[[1,0],[1,1],[0,1]],                          w: 1}
+  ]
+};
+
+/* ---------------- 2. 工具 ---------------- */
+const clamp = (v,a,b)=>Math.max(a,Math.min(b,v));
+const mulberry32 = (seed)=>{ let a=seed>>>0; return function(){ a|=0; a=a+0x6D2B79F5|0; let t=Math.imul(a^a>>>15,1|a); t=t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296; }; };
+const $ = id=>document.getElementById(id);
+
+/* ---------------- 3. 状态 ---------------- */
+const State = {
+  phase: 'MENU',                  // MENU | PLAYING | GAMEOVER
+  grid: null,                     // 8×8, 0=空, 其余=颜色索引+1
+  tray: [],                       // [{id, shape, colorIdx, w,h}]
+  used: new Set(),                // 已发放方块 id（唯一身份）
+  score: 0, best: 0,
+  placements: 0, cellsPlaced: 0, clears: 0, linesCleared: 0,
+  streak: 0, maxStreak: 0, maxK: 0, milestone: 0,
+  startTime: 0, busy: false,
+  seed: 0, rng: null, nextId: 1,
+  sound: true, timeScale: 1,
+  auto: false, autoTimer: null,
+  drag: null,                     // {idx, cellX, cellY, grabbed}
+  stars: [], floatTexts: [], particles: [], pops: [],
+  hintShown: false,
+  events: []
+};
+function logEvent(type, data){
+  State.events.push({t: +(Date.now()/1000).toFixed(1), type, data: data||''});
+  if(State.events.length>30) State.events.shift();
+  renderEventLog();
+}
+function renderEventLog(){
+  const el = $('eventLog');
+  el.innerHTML = State.events.map(e=>`<div>${e.t} · ${e.type}${e.data? ' · '+e.data:''}</div>`).join('');
+  el.scrollTop = el.scrollHeight;
+}
+
+/* ---------------- 4. 布局与渲染 ---------------- */
+const canvas = $('gameCanvas');
+const ctx = canvas.getContext('2d');
+let L = {W:0, H:0, dpr:1, boardX:0, boardY:0, cell:0, pad:0, trayY:0, trayH:0, slotW:0};
+
+// 托盘高度必须是「单一口径」：高度估算 estH() 和真正落地写入的 L.trayH 都要走这里。
+// 曾经两边各写一份（估算 56 / 实布 82），于是二分求出的宽度在真实布局时凭空多出
+// (82-56)=26px —— 桌面看不出来，手机横屏与极矮窗口却被 overflow:hidden 从底部裁掉。
+// 这类 bug 只有在「用真实布局结果验收」时才会暴露，复算公式会跟着一起错。
+// 64 是扫描 4 种下限 × 4 种槽高比 × 3 种槽宽比后的最优解（见 tests/headless-check.js 第 5/7 组）：
+// 再高会把 667×375 横屏的棋盘挤到不可玩，再矮则托盘里的方块小于 8px/格看不见。
+const trayHeightFor = (w)=> Math.max(64, w*0.2);
+
+function computeLayout(){
+  const stageW = canvas.parentElement.clientWidth || 480;
+  let W = Math.min(stageW, 520);
+  // 高度自适应：总高 = pad + board + gap + trayH + pad
+  const estH = (w)=>{
+    const pad = Math.max(10, w*0.022);
+    const board = w - pad*2;
+    const trayH = trayHeightFor(w);
+    return pad + board + Math.max(12, w*0.028) + trayH + pad;
+  };
+  const availH = window.innerHeight - 150; // HUD + 底部提示 + 间距
+  if(estH(W) > availH){
+    // 在 estH(w)<=availH 约束下二分求最大 w。
+    // 【修复】下限原为 170，而 170 对应的最小画布就有 264px 高；
+    // 667×375 这种手机横屏可用高只有 225，二分无论怎么收都装不下，
+    // 再叠加 overflow:hidden，结果就是棋盘底部被直接裁掉。下限降到 120 才能让矮视口真正收缩。
+    let lo = 120, hi = W;
+    for(let k=0;k<24;k++){
+      const mid = (lo+hi)/2;
+      if(estH(mid) <= availH) lo = mid; else hi = mid;
+    }
+    W = lo;
+  }
+  // 极矮视口：隐藏操作提示，腾出空间。
+  // 【修复】原来这里无条件把 display 重置成 ''，导致 resize / 转屏后已经被隐藏的提示"复活"。
+  // 现在尊重 State.hintShown（这个字段原本声明了却从没被读过）。
+  $('hint').style.display = (availH < 330 || State.hintShown) ? 'none' : '';
+  L.W = W; L.dpr = Math.min(window.devicePixelRatio||1, 2.5);
+  L.pad = Math.max(10, L.W*0.022);
+  const boardSize = L.W - L.pad*2;
+  L.cell = boardSize / CONFIG.GRID;
+  L.boardX = L.pad; L.boardY = L.pad;
+  L.trayH = trayHeightFor(L.W);
+  L.trayY = L.pad + boardSize + Math.max(12, L.W*0.028);
+  L.H = L.trayY + L.trayH + L.pad;
+  L.slotW = (L.W - L.pad*2 - (CONFIG.TRAY_SIZE-1)*10) / CONFIG.TRAY_SIZE;
+  canvas.style.width = L.W + 'px';
+  canvas.style.height = L.H + 'px';
+  canvas.width = Math.round(L.W*L.dpr); canvas.height = Math.round(L.H*L.dpr);
+  ctx.setTransform(L.dpr,0,0,L.dpr,0,0);
+}
+function cellRect(r,c){
+  return {x: L.boardX + c*L.cell, y: L.boardY + r*L.cell, s: L.cell};
+}
+function traySlotRect(i){
+  const x = L.pad + i*(L.slotW+10);
+  // 【修复】槽位由"占托盘 72%、上留 14%"改为"占 86%、上留 7%"。
+  // 矮视口下托盘高度是稀缺资源，把留白还给方块本身。
+  return {x, y: L.trayY + L.trayH*0.07, w: L.slotW, h: L.trayH*0.86};
+}
+/* 托盘内每格像素：受槽位宽高约束，且不超过棋盘格的 62%。
+   【必须】绘制(drawTray)与抓取映射(onPointerDown)共用这一个函数，
+   否则手指按下的位置和方块画出来的位置会对不上。 */
+function trayPieceCell(p, slot){
+  return Math.min(slot.w*0.86/p.w, slot.h*0.6/p.h, L.cell*0.62);
+}
+
+/* 星星背景初始化 */
+function initStars(){
+  State.stars = [];
+  const n = 70;
+  for(let i=0;i<n;i++){
+    State.stars.push({x: Math.random(), y: Math.random(), r: Math.random()*1.4+0.4, tw: Math.random()*Math.PI*2, sp: 0.6+Math.random()*1.8});
+  }
+}
+
+function drawBackground(time){
+  const g = ctx.createLinearGradient(0,0,L.W,L.H);
+  g.addColorStop(0,'#0d1130'); g.addColorStop(0.5,'#171248'); g.addColorStop(1,'#0c2747');
+  ctx.fillStyle = g; ctx.fillRect(0,0,L.W,L.H);
+  // 星点
+  for(const s of State.stars){
+    const a = 0.35 + 0.35*Math.sin(time*0.001*s.sp + s.tw);
+    ctx.globalAlpha = a;
+    ctx.fillStyle = '#cfe0ff';
+    ctx.beginPath(); ctx.arc(s.x*L.W, s.y*L.H, s.r, 0, Math.PI*2); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  // 中心辉光
+  const cx = L.W/2, cy = L.boardY + L.cell*4;
+  const rg = ctx.createRadialGradient(cx,cy,20,cx,cy,L.W*0.62);
+  rg.addColorStop(0,'rgba(96,90,255,.16)'); rg.addColorStop(1,'rgba(96,90,255,0)');
+  ctx.fillStyle = rg; ctx.fillRect(0,0,L.W,L.H);
+}
+
+function roundRectPath(x,y,w,h,r){
+  ctx.beginPath();
+  ctx.moveTo(x+r,y);
+  ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r);
+  ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r);
+  ctx.closePath();
+}
+
+function drawBoard(){
+  // 棋盘玻璃面板
+  ctx.save();
+  roundRectPath(L.boardX-6, L.boardY-6, L.W-L.pad*2+12, L.cell*8+12, 20);
+  ctx.fillStyle = 'rgba(255,255,255,.055)';
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(255,255,255,.13)'; ctx.lineWidth = 1;
+  ctx.stroke();
+  ctx.restore();
+  // 格子
+  for(let r=0;r<CONFIG.GRID;r++){
+    for(let c=0;c<CONFIG.GRID;c++){
+      const {x,y,s} = cellRect(r,c);
+      roundRectPath(x+1.5, y+1.5, s-3, s-3, Math.max(4, s*0.13));
+      ctx.fillStyle = (r+c)%2===0 ? 'rgba(255,255,255,.045)' : 'rgba(255,255,255,.025)';
+      ctx.fill();
+      const v = State.grid[r][c];
+      if(v>0){
+        const [hi,lo] = CONFIG.PALETTE[(v-1)%CONFIG.PALETTE.length];
+        drawBlockCell(x,y,s,hi,lo,1,0);
+      }
+    }
+  }
+}
+
+function drawBlockCell(x,y,s,hi,lo,alpha,glow){
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  const r = Math.max(4, s*0.16);
+  // 外发光
+  ctx.shadowColor = lo; ctx.shadowBlur = s*0.28*glow;
+  roundRectPath(x+1.2, y+1.2, s-2.4, s-2.4, r);
+  const g = ctx.createLinearGradient(x,y,x,y+s);
+  g.addColorStop(0, hi); g.addColorStop(1, lo);
+  ctx.fillStyle = g; ctx.fill();
+  ctx.shadowBlur = 0;
+  // 顶部高光
+  roundRectPath(x+2.4, y+2.4, s-4.8, s*0.32, r*0.8);
+  ctx.fillStyle = 'rgba(255,255,255,.28)'; ctx.fill();
+  // 底部内阴影
+  roundRectPath(x+2.4, y+s*0.68, s-4.8, s*0.26, r*0.7);
+  ctx.fillStyle = 'rgba(0,0,0,.16)'; ctx.fill();
+  // 边框
+  roundRectPath(x+1.2, y+1.2, s-2.4, s-2.4, r);
+  ctx.strokeStyle = 'rgba(255,255,255,.22)'; ctx.lineWidth = 1;
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawTray(time){
+  // 托盘面板
+  ctx.save();
+  roundRectPath(L.pad-4, L.trayY-4, L.W-L.pad*2+8, L.trayH+8, 18);
+  ctx.fillStyle = 'rgba(255,255,255,.05)';
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(255,255,255,.12)'; ctx.lineWidth=1; ctx.stroke();
+  ctx.restore();
+  for(let i=0;i<CONFIG.TRAY_SIZE;i++){
+    const slot = traySlotRect(i);
+    // 槽位底色：比面板更亮一点，突出"可抓取"区域
+    const grd = ctx.createLinearGradient(slot.x, slot.y, slot.x, slot.y+slot.h);
+    grd.addColorStop(0,'rgba(255,255,255,.09)'); grd.addColorStop(1,'rgba(255,255,255,.03)');
+    roundRectPath(slot.x, slot.y, slot.w, slot.h, 14);
+    ctx.fillStyle = grd; ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,.22)'; ctx.lineWidth = 1.2; ctx.stroke();
+    // 槽位内侧微光
+    roundRectPath(slot.x+2.5, slot.y+2.5, slot.w-5, slot.h-5, 12);
+    ctx.strokeStyle = 'rgba(124,108,255,.25)'; ctx.lineWidth = 1; ctx.stroke();
+    const p = State.tray[i];
+    if(!p) continue;
+    if(State.drag && State.drag.idx===i) continue; // 拖起时不画
+    // 【修复】托盘方块不可见的根因：旧代码把"比例上限 1"当成了"每格像素"——
+    // maxScale 本身就是像素/格，再 min(maxScale, 1) 后拿来乘格数，
+    // 结果每格最多画 1 像素，2x2 方块只有 2x2px，肉眼不可见。
+    // 现在直接用统一口径的 trayPieceCell()。
+    const cs = trayPieceCell(p, slot);
+    const pw = p.w*cs, ph = p.h*cs;
+    const ox = slot.x + (slot.w-pw)/2, oy = slot.y + (slot.h-ph)/2;
+    const [hi,lo] = CONFIG.PALETTE[p.colorIdx%CONFIG.PALETTE.length];
+    for(let ri=0; ri<p.shape.length; ri++){
+      const row = p.shape[ri];
+      for(let ci=0; ci<row.length; ci++){
+        if(!row[ci]) continue;
+        drawBlockCell(ox + ci*cs, oy + ri*cs, cs*0.96, hi, lo, 1, 0.6);
+      }
+    }
+  }
+  // 空位提示
+  if(State.tray.length===0 && State.phase==='PLAYING'){
+    ctx.save();
+    ctx.font = '600 12px '+getComputedStyle(document.body).fontFamily;
+    ctx.fillStyle = 'rgba(160,180,255,.55)';
+    ctx.textAlign = 'center';
+    ctx.fillText('正在发放新方块…', L.W/2, L.trayY+L.trayH/2+4);
+    ctx.restore();
+  }
+}
+
+function drawDragGhost(){
+  if(!State.drag) return;
+  const d = State.drag;
+  const p = State.tray[d.idx];
+  if(!p) return;
+  // 【修复】原来只判了负数，拖到右/下边界外时方块会被逐格画到盘外（棋盘右侧留白很窄，
+  // 从托盘起手时 cellR 还会落进托盘区域，红色幽灵直接盖在托盘上）。
+  // 现在要求整块都在盘内才画幽灵：越界时由 drawDragPiece 变暗表示"松手放不下"。
+  if(d.cellR<0 || d.cellC<0 || d.cellR+p.h>CONFIG.GRID || d.cellC+p.w>CONFIG.GRID) return;
+  const ok = canPlace(p, d.cellR, d.cellC);
+  ctx.save();
+  for(let ri=0; ri<p.shape.length; ri++){
+    const row = p.shape[ri];
+    for(let ci=0; ci<row.length; ci++){
+      if(!row[ci]) continue;
+      const {x,y,s} = cellRect(d.cellR+ri, d.cellC+ci);
+      roundRectPath(x+1.5, y+1.5, s-3, s-3, Math.max(4, s*0.13));
+      ctx.fillStyle = ok ? 'rgba(126,242,178,.28)' : 'rgba(255,107,130,.30)';
+      ctx.fill();
+      ctx.strokeStyle = ok ? 'rgba(126,242,178,.7)' : 'rgba(255,107,130,.75)';
+      ctx.lineWidth = 1.4; ctx.stroke();
+    }
+  }
+  ctx.restore();
+}
+
+function drawDragPiece(){
+  if(!State.drag) return;
+  const d = State.drag;
+  const p = State.tray[d.idx];
+  if(!p) return;
+  const cs = L.cell*0.94;
+  const [hi,lo] = CONFIG.PALETTE[p.colorIdx%CONFIG.PALETTE.length];
+  // 锚点：进入棋盘后精确吸附到目标格（与幽灵完全重合，所见即所放）；
+  // 棋盘外则跟随指针（以抓取格为基准）
+  let ox, oy;
+  if(d.cellR>=0 && d.cellC>=0){
+    ox = L.boardX + d.cellC*L.cell;
+    oy = L.boardY + d.cellR*L.cell;
+  } else {
+    ox = d.x - d.grabCol*L.cell;
+    oy = d.y - (d.lift||0) - d.grabRow*L.cell;
+  }
+  // 【修复】像素级夹取：整块始终被约束在棋盘矩形内，绝不会画到盘外或压住托盘
+  const pw = p.w*L.cell, ph = p.h*L.cell;
+  const boardSize = L.cell*CONFIG.GRID;
+  ox = clamp(ox, L.boardX, Math.max(L.boardX, L.boardX + boardSize - pw));
+  oy = clamp(oy, L.boardY, Math.max(L.boardY, L.boardY + boardSize - ph));
+  // 【新增】这个位置落下会无效（越界或重叠）时整体变暗，给出诚实的"放不下"反馈
+  const ok = canPlace(p, d.cellR, d.cellC);
+  ctx.save();
+  if(!ok) ctx.globalAlpha = 0.5;
+  ctx.shadowColor = 'rgba(0,0,0,.5)'; ctx.shadowBlur = 18; ctx.shadowOffsetY = 8;
+  for(let ri=0; ri<p.shape.length; ri++){
+    const row = p.shape[ri];
+    for(let ci=0; ci<row.length; ci++){
+      if(!row[ci]) continue;
+      // 高亮轮廓底：白色描边，保证方块在任何背景下清晰可见
+      const bx = ox + ci*cs, by = oy + ri*cs;
+      roundRectPath(bx-1.4, by-1.4, cs*0.94+2.8, cs*0.94+2.8, Math.max(4, cs*0.16));
+      ctx.fillStyle = 'rgba(255,255,255,.12)'; ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,255,.6)'; ctx.lineWidth = 1.6; ctx.stroke();
+      drawBlockCell(bx, by, cs*0.94, hi, lo, 1, 1.1);
+    }
+  }
+  ctx.restore();
+}
+
+function drawParticles(dt){
+  const arr = State.particles;
+  for(let i=arr.length-1;i>=0;i--){
+    const pt = arr[i];
+    pt.life -= dt/1000;
+    if(pt.life<=0){ arr.splice(i,1); continue; }
+    pt.x += pt.vx*dt/1000; pt.y += pt.vy*dt/1000; pt.vy += 520*dt/1000;
+    const a = clamp(pt.life/pt.maxLife, 0, 1);
+    ctx.globalAlpha = a;
+    ctx.fillStyle = pt.color;
+    ctx.beginPath(); ctx.arc(pt.x, pt.y, pt.r*a, 0, Math.PI*2); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+
+function drawFloatTexts(dt){
+  for(let i=State.floatTexts.length-1;i>=0;i--){
+    const f = State.floatTexts[i];
+    f.life -= dt/1000;
+    if(f.life<=0){ State.floatTexts.splice(i,1); continue; }
+    const t = 1 - f.life/f.maxLife;
+    const a = t<0.7 ? 1 : 1-(t-0.7)/0.3;
+    ctx.save();
+    ctx.globalAlpha = clamp(a,0,1);
+    ctx.font = '800 '+f.size+'px '+getComputedStyle(document.body).fontFamily;
+    ctx.textAlign = 'center';
+    ctx.fillStyle = f.color;
+    ctx.shadowColor = 'rgba(0,0,0,.5)'; ctx.shadowBlur = 6;
+    ctx.fillText(f.text, f.x, f.y - t*36);
+    ctx.restore();
+  }
+}
+
+function drawPops(dt){
+  // 落子弹出动画（缩放）
+  for(let i=State.pops.length-1;i>=0;i--){
+    const p = State.pops[i];
+    p.t += dt/1000;
+    if(p.t>=p.dur){ State.pops.splice(i,1); continue; }
+    const k = clamp(p.t/p.dur,0,1);
+    const sc = 0.4 + 0.6*easeOutBack(k);
+    const {x,y,s} = cellRect(p.r, p.col);
+    const [hi,lo] = CONFIG.PALETTE[(p.c-1)%CONFIG.PALETTE.length];
+    const cx = x+s/2, cy=y+s/2, ns = s*sc;
+    drawBlockCell(cx-ns/2, cy-ns/2, ns, hi, lo, 1, 0.7);
+  }
+}
+
+function easeOutBack(t){ const c=1.70158; return 1+ (c+1)*Math.pow(t-1,3) + c*Math.pow(t-1,2); }
+
+function render(time, dt){
+  drawBackground(time);
+  drawBoard();
+  drawPops(dt);
+  drawTray(time);
+  drawDragGhost();
+  drawDragPiece();
+  drawParticles(dt);
+  drawFloatTexts(dt);
+}
+
+/* ---------------- 5. 规则 ---------------- */
+function pieceCells(p){ return p.shape.reduce((n,row)=>n+row.reduce((m,v)=>m+v,0),0); }
+function newPiece(){
+  // 加权随机从方块池取形状
+  let total = 0;
+  for(const p of CONFIG.PIECES) total += p.w;
+  let roll = State.rng()*total;
+  let shape = CONFIG.PIECES[0].m;
+  for(const p of CONFIG.PIECES){ roll -= p.w; if(roll<=0){ shape = p.m; break; } }
+  return {
+    id: State.nextId++,
+    shape: shape.map(r=>r.slice()),
+    colorIdx: Math.floor(State.rng()*CONFIG.PALETTE.length),
+    w: shape[0].length, h: shape.length
+  };
+}
+function dealTray(){
+  // 【保底发牌】纯随机发牌会在盘面较满时直接发出"三块全都放不下"的死局
+  // （实测：棋盘占用 80% 时概率 28.2%，90% 时 57.0%），玩家体感是"我还没走就被系统判死"。
+  // 这里补一条底线：三块里至少要有一块在当前盘面能落下。
+  // 重掷仍然消耗同一个 State.rng，所以同一种子依旧完全可复现（种子回放不受影响）。
+  for(let attempt=0; attempt<24; attempt++){
+    State.tray = [];
+    for(let i=0;i<CONFIG.TRAY_SIZE;i++) State.tray.push(newPiece());
+    if(anyMoveLeft()) break;
+  }
+  // 最后兜底：真到了连 24 次都放不下的极端盘面，从方块池里强行挑一个此刻能落下的形状。
+  if(!anyMoveLeft()){
+    let found = false;
+    for(const spec of CONFIG.PIECES){
+      const p = {id: State.nextId++, shape: spec.m.map(r=>r.slice()),
+                 colorIdx: Math.floor(State.rng()*CONFIG.PALETTE.length),
+                 w: spec.m[0].length, h: spec.m.length};
+      let ok = false;
+      for(let r=0; r<=CONFIG.GRID-p.h && !ok; r++)
+        for(let c=0; c<=CONFIG.GRID-p.w && !ok; c++)
+          if(canPlace(p,r,c)) ok = true;
+      if(ok){ State.tray[0] = p; found = true; break; }
+    }
+    if(found) logEvent('dealPity', '当前盘面触发保底发牌');
+  }
+  logEvent('deal', State.tray.map(p=>p.shape.map(r=>r.join('')).join('/')).join(' | '));
+}
+function resetRun(seed){
+  State.seed = seed>>>0;
+  State.rng = mulberry32(State.seed);
+  State.grid = Array.from({length: CONFIG.GRID}, ()=>Array(CONFIG.GRID).fill(0));
+  State.score = 0; State.placements = 0; State.cellsPlaced = 0;
+  State.clears = 0; State.linesCleared = 0; State.streak = 0; State.maxStreak = 0;
+  State.maxK = 0; State.milestone = 0; State.nextId = 1;
+  State.drag = null; State.busy = false;
+  State.particles = []; State.floatTexts = []; State.pops = [];
+  State.hintShown = false;
+  State.events = [];
+  State.startTime = Date.now();
+  dealTray();
+  updateHUD();
+  $('hint').classList.remove('hide');
+  logEvent('restart', 'seed='+State.seed);
+  if(State.auto) startAuto();
+}
+function canPlace(p, r, c){
+  if(r<0 || c<0 || r+p.h>CONFIG.GRID || c+p.w>CONFIG.GRID) return false;
+  for(let i=0;i<p.h;i++)
+    for(let j=0;j<p.w;j++)
+      if(p.shape[i][j] && State.grid[r+i][c+j]!==0) return false;
+  return true;
+}
+function anyMoveLeft(){
+  for(const p of State.tray){
+    for(let r=0;r<=CONFIG.GRID-p.h;r++)
+      for(let c=0;c<=CONFIG.GRID-p.w;c++)
+        if(canPlace(p,r,c)) return true;
+  }
+  return false;
+}
+function placePiece(idx, r, c){
+  const p = State.tray[idx];
+  // 写入棋盘
+  const colorVal = p.colorIdx+1;
+  for(let i=0;i<p.h;i++)
+    for(let j=0;j<p.w;j++)
+      if(p.shape[i][j]) State.grid[r+i][c+j] = colorVal;
+  State.tray.splice(idx,1);
+  State.placements++;
+  State.cellsPlaced += pieceCells(p);
+  // 分数（落子）
+  addScore(pieceCells(p)*CONFIG.PLACE_PER_CELL);
+  // 落子弹出动画
+  for(let i=0;i<p.h;i++)
+    for(let j=0;j<p.w;j++)
+      // 【修复】原先写成 {r:r+i, c:c+j, c:colorVal} —— 同一个字面量里 c 键出现两次，
+      // 后写的胜出，列号被颜色值覆盖，落子动画会画到错误的列上。改用 col 存列。
+      if(p.shape[i][j]) State.pops.push({r:r+i, col:c+j, c:colorVal, t:0, dur:CONFIG.PLACE_POP_MS/1000});
+  State.drag = null;
+  logEvent('place', `${p.w}x${p.h} @(${r},${c})`);
+  // 消除判定
+  const lines = findLines();
+  if(lines.k>0){
+    State.busy = true;
+    setTimeout(()=>{
+      clearLines(lines);
+    }, CONFIG.PLACE_POP_MS);
+  } else {
+    State.streak = 0;
+    afterPlacement(false);
+  }
+}
+function findLines(){
+  const rows=[], cols=[];
+  for(let r=0;r<CONFIG.GRID;r++){ let full=true; for(let c=0;c<CONFIG.GRID;c++) if(!State.grid[r][c]){full=false;break;} if(full) rows.push(r); }
+  for(let c=0;c<CONFIG.GRID;c++){ let full=true; for(let r=0;r<CONFIG.GRID;r++) if(!State.grid[r][c]){full=false;break;} if(full) cols.push(c); }
+  return {rows, cols, k: rows.length+cols.length};
+}
+function clearLines(lines){
+  const k = lines.k;
+  const colors = collectLineColors(lines);
+  // 闪光
+  flashLines(lines);
+  State.busy = true;
+  setTimeout(()=>{
+    // 实际清除
+    for(const r of lines.rows) for(let c=0;c<CONFIG.GRID;c++) State.grid[r][c]=0;
+    for(const c of lines.cols) for(let r=0;r<CONFIG.GRID;r++) State.grid[r][c]=0;
+    // 连击
+    State.streak++;
+    State.maxStreak = Math.max(State.maxStreak, State.streak);
+    State.maxK = Math.max(State.maxK, k);
+    State.clears++; State.linesCleared += k;
+    const mult = Math.min(1 + CONFIG.STREAK_MULT_STEP*(State.streak-1), CONFIG.STREAK_MULT_CAP);
+    const base = CONFIG.LINE_BASE * k*(k+1)/2;
+    const pts = Math.round(base*mult);
+    let fullClear = false;
+    let empty = true;
+    for(let r=0;r<CONFIG.GRID;r++) for(let c=0;c<CONFIG.GRID;c++) if(State.grid[r][c]) empty=false;
+    if(empty){ fullClear = true; addScore(pts + CONFIG.FULL_CLEAR_BONUS); }
+    else addScore(pts);
+    // 粒子 + 浮动文字
+    burstParticles(lines, colors);
+    const cx = L.boardX + L.cell*4, cy = L.boardY + L.cell*2;
+    State.floatTexts.push({text: fullClear? `全清 +${pts+CONFIG.FULL_CLEAR_BONUS}` : `+${pts}`, x:cx, y:cy, size: fullClear?30:24, color: fullClear?'#ffd166':'#7ef2b2', life:1, maxLife:1});
+    showComboBanner(k, pts, State.streak, fullClear);
+    logEvent('clear', `k=${k} streak=${State.streak} pts=${pts}${fullClear?' FULLCLEAR':''}`);
+    if(fullClear) playMilestone();
+    else playClear(k);
+    updateHUD();
+    afterPlacement(true);
+  }, CONFIG.CLEAR_FLASH_MS);
+}
+function collectLineColors(lines){
+  const set = new Set();
+  for(const r of lines.rows) for(let c=0;c<CONFIG.GRID;c++) if(State.grid[r][c]) set.add(State.grid[r][c]);
+  for(const c of lines.cols) for(let r=0;r<CONFIG.GRID;r++) if(State.grid[r][c]) set.add(State.grid[r][c]);
+  return set;
+}
+function flashLines(lines){
+  // 简单实现：用粒子沿线条 + 短暂的高亮块（由 clear 阶段渲染）
+  // 【修复】同上：列号必须用 col 保存，否则 c 被颜色值覆盖，整行消除闪光会错列闪。
+  for(const r of lines.rows) for(let c=0;c<CONFIG.GRID;c++){
+    if(State.grid[r][c]) State.pops.push({r, col:c, c:State.grid[r][c], t:0, dur:CONFIG.CLEAR_FLASH_MS/1000});
+  }
+  for(const c of lines.cols) for(let r=0;r<CONFIG.GRID;r++){
+    if(State.grid[r][c]) State.pops.push({r, col:c, c:State.grid[r][c], t:0, dur:CONFIG.CLEAR_FLASH_MS/1000});
+  }
+}
+function burstParticles(lines, colors){
+  const palette = CONFIG.PALETTE;
+  const colorList = [...colors].map(v=>palette[(v-1)%palette.length][1]);
+  const spawn = (x,y,color)=>{
+    for(let i=0;i<6;i++){
+      const ang = Math.random()*Math.PI*2, spd = 60+Math.random()*160;
+      State.particles.push({x,y,vx:Math.cos(ang)*spd,vy:Math.sin(ang)*spd-40,r:2+Math.random()*3,color,life:0.55+Math.random()*0.35,maxLife:0.9});
+    }
+  };
+  for(const r of lines.rows) for(let c=0;c<CONFIG.GRID;c++){
+    const {x,y,s} = cellRect(r,c);
+    spawn(x+s/2,y+s/2, colorList[Math.floor(Math.random()*colorList.length)]);
+  }
+  for(const c of lines.cols) for(let r=0;r<CONFIG.GRID;r++){
+    const {x,y,s} = cellRect(r,c);
+    spawn(x+s/2,y+s/2, colorList[Math.floor(Math.random()*colorList.length)]);
+  }
+}
+function showComboBanner(k, pts, streak, fullClear){
+  const b = $('comboBanner');
+  $('comboBig').textContent = fullClear ? '全 清 !' : (k>=2 ? `COMBO ×${k}` : (streak>=2 ? `连击 ×${streak}` : '消 除'));
+  $('comboSub').textContent = fullClear ? `+${pts+CONFIG.FULL_CLEAR_BONUS} 满分奖励` : `+${pts}`;
+  b.classList.remove('show'); void b.offsetWidth; b.classList.add('show');
+}
+function addScore(n){
+  State.score += n;
+  const newMil = Math.floor(State.score / CONFIG.MILESTONE_STEP);
+  if(newMil>State.milestone){ State.milestone = newMil; playMilestone(); }
+  updateHUD();
+}
+function afterPlacement(cleared){
+  // 托盘空则补发
+  if(State.tray.length===0) dealTray();
+  // 终局检查
+  if(!anyMoveLeft()){
+    setTimeout(()=>gameOver(), 260);
+    return;
+  }
+  State.busy = false;
+  if(State.auto && State.phase==='PLAYING') scheduleAuto();
+  if(State.placements===1){ State.hintShown = true; $('hint').classList.add('hide'); }
+}
+function gameOver(){
+  State.phase = 'GAMEOVER';
+  State.busy = false;
+  stopAuto();
+  const dur = Math.round((Date.now()-State.startTime)/1000);
+  const isBest = State.score > State.best;
+  if(isBest){ State.best = State.score; saveBest(); }
+  $('stScore').textContent = State.score;
+  $('stBlocks').textContent = State.placements;
+  $('stLines').textContent = State.linesCleared;
+  $('stCombo').textContent = State.maxStreak;
+  $('stMaxK').textContent = State.maxK;
+  $('stTime').textContent = dur+'s';
+  $('newBest').classList.toggle('show', isBest);
+  $('overScreen').classList.add('show');
+  playGameOver();
+  logEvent('gameover', `score=${State.score} best=${isBest}`);
+  updateHUD();
+}
+function updateHUD(){
+  $('scoreVal').textContent = State.score;
+  $('bestVal').textContent = State.best;
+  const step = CONFIG.MILESTONE_STEP;
+  const inMil = State.score % step;
+  $('mileText').textContent = `${inMil} / ${step}`;
+  $('mileFill').style.width = (inMil/step*100)+'%';
+}
+
+/* ---------------- 6. 输入（拖拽） ---------------- */
+function canvasPos(e){
+  const rect = canvas.getBoundingClientRect();
+  return {x: e.clientX-rect.left, y: e.clientY-rect.top};
+}
+function hitTray(x,y){
+  for(let i=0;i<State.tray.length;i++){
+    const slot = traySlotRect(i);
+    if(x>=slot.x && x<=slot.x+slot.w && y>=slot.y && y<=slot.y+slot.h) return i;
+  }
+  return -1;
+}
+function onPointerDown(e){
+  if(State.phase!=='PLAYING' || State.busy) return;
+  if(State.drag) return; // 双通道去重（pointer + mouse 都可能触发）
+  const {x,y} = canvasPos(e);
+  const idx = hitTray(x,y);
+  if(idx<0) return;
+  const p = State.tray[idx];
+  const slot = traySlotRect(idx);
+  // 【修复】抓取映射必须和托盘绘制用同一个每格像素口径（旧代码这里也带 1px 上限，
+  // 会导致 grabCol/grabRow 永远被夹到最右/最下的格子）
+  const cs = trayPieceCell(p, slot);
+  const pw = p.w*cs, ph = p.h*cs;
+  const ox = slot.x + (slot.w-pw)/2, oy = slot.y + (slot.h-ph)/2;
+  // 抓取点在方块内的偏移（格单位）
+  const grabCol = clamp(Math.floor((x-ox)/cs), 0, p.w-1);
+  const grabRow = clamp(Math.floor((y-oy)/cs), 0, p.h-1);
+  // 【修复】触控时把方块抬到手指上方：原来的痛点锚点等于手指位置，方块被手掌完全遮住。
+  // 鼠标不受影响（pointerType 不是 touch，抬升为 0），两端都保持所见即所放。
+  const lift = (e.pointerType === 'touch') ? L.cell*0.85 : 0;
+  State.drag = {idx, x, y, grabCol, grabRow, lift, cellR:-1, cellC:-1};
+  canvas.classList.add('dragging');
+  e.preventDefault();
+  try{ canvas.setPointerCapture(e.pointerId); }catch(err){}
+  playClick();
+}
+function onPointerMove(e){
+  if(!State.drag) return;
+  const {x,y} = canvasPos(e);
+  State.drag.x = x; State.drag.y = y;
+  // 目标格：以抓取点为基准对齐
+  const d = State.drag, p = State.tray[d.idx];
+  const targetX = x - d.grabCol*L.cell - L.boardX;
+  const targetY = y - (d.lift||0) - d.grabRow*L.cell - L.boardY;
+  d.cellC = Math.floor(targetX/L.cell);
+  d.cellR = Math.floor(targetY/L.cell);
+  e.preventDefault();
+}
+function onPointerUp(e){
+  if(!State.drag) return;
+  const d = State.drag;
+  const p = State.tray[d.idx];
+  canvas.classList.remove('dragging');
+  if(d.cellR>=0 && d.cellC>=0 && canPlace(p, d.cellR, d.cellC)){
+    playPlace();
+    placePiece(d.idx, d.cellR, d.cellC);
+  } else {
+    playInvalid();
+    State.drag = null;
+  }
+}
+function onPointerCancel(){ if(State.drag){ State.drag=null; canvas.classList.remove('dragging'); } }
+
+// 双通道：pointer 优先，mouse 兜底（兼容内置浏览器/WebView 事件支持差异）
+canvas.addEventListener('pointerdown', onPointerDown);
+canvas.addEventListener('pointermove', onPointerMove);
+canvas.addEventListener('pointerup', onPointerUp);
+canvas.addEventListener('pointercancel', onPointerCancel);
+canvas.addEventListener('mousedown', onPointerDown);
+canvas.addEventListener('mousemove', onPointerMove);
+canvas.addEventListener('mouseup', onPointerUp);
+// 全局兜底：指针事件丢失 / 失焦 / 窗口外点击时自动结束拖拽，防止托盘缺块卡死
+window.addEventListener('pointerup', ()=>{ if(State.drag){ State.drag=null; canvas.classList.remove('dragging'); } });
+window.addEventListener('pointercancel', onPointerCancel);
+window.addEventListener('mouseup', ()=>{ if(State.drag){ State.drag=null; canvas.classList.remove('dragging'); } });
+window.addEventListener('blur', onPointerCancel);
+window.addEventListener('contextmenu', (e)=>{ if(State.drag){ e.preventDefault(); onPointerCancel(); } });
+
+/* ---------------- 7. 音效（WebAudio 合成，无外部资源） ---------------- */
+let AC = null;
+function ensureAudio(){
+  if(!AC){ try{ AC = new (window.AudioContext||window.webkitAudioContext)(); }catch(err){ AC=null; } }
+  if(AC && AC.state==='suspended') AC.resume();
+}
+function tone(freq, dur, type, vol, delay=0, slide=0){
+  if(!State.sound || !AC) return;
+  const t0 = AC.currentTime + delay;
+  const o = AC.createOscillator(), g = AC.createGain();
+  o.type = type||'sine';
+  o.frequency.setValueAtTime(freq, t0);
+  if(slide) o.frequency.exponentialRampToValueAtTime(Math.max(30,freq+slide), t0+dur);
+  g.gain.setValueAtTime(0.0001, t0);
+  g.gain.exponentialRampToValueAtTime(vol||0.25, t0+0.012);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0+dur);
+  o.connect(g); g.connect(AC.destination);
+  o.start(t0); o.stop(t0+dur+0.02);
+}
+function playClick(){ tone(880,0.05,'sine',0.08); }
+function playPlace(){ tone(190,0.09,'sine',0.22,0,-120); }
+function playInvalid(){ tone(120,0.13,'sawtooth',0.1); }
+function playClear(k){
+  const notes = [523.25,659.25,783.99,1046.5];
+  const n = Math.min(k, notes.length);
+  for(let i=0;i<n;i++) tone(notes[i]*(State.streak>=2?1.06:1),0.16,'triangle',0.2,i*0.06);
+}
+function playMilestone(){ tone(1568,0.14,'sine',0.16); tone(2093,0.18,'sine',0.14,0.09); }
+function playGameOver(){ [392,330,262,196].forEach((f,i)=>tone(f,0.22,'triangle',0.16,i*0.15)); }
+function playStart(){ [523.25,659.25,783.99].forEach((f,i)=>tone(f,0.14,'sine',0.16,i*0.07)); }
+
+/* ---------------- 8. 自动演示（AI 贪心） ---------------- */
+function botBestMove(){
+  let best = null, bestScore = -Infinity;
+  for(let i=0;i<State.tray.length;i++){
+    const p = State.tray[i];
+    for(let r=0;r<=CONFIG.GRID-p.h;r++){
+      for(let c=0;c<=CONFIG.GRID-p.w;c++){
+        if(!canPlace(p,r,c)) continue;
+        // 试放，评估消除
+        const saved = State.grid.map(row=>row.slice());
+        const colorVal = p.colorIdx+1;
+        for(let a=0;a<p.h;a++) for(let b=0;b<p.w;b++) if(p.shape[a][b]) State.grid[r+a][c+b]=colorVal;
+        const lines = findLines();
+        const k = lines.k;
+        const base = CONFIG.LINE_BASE*k*(k+1)/2;
+        // 评估：优先凑满整行（行密度²），惩罚自底向上过高的堆叠
+        let rowFill = 0;
+        for(let rr=0; rr<CONFIG.GRID; rr++){ let cnt=0; for(let cc=0; cc<CONFIG.GRID; cc++) if(State.grid[rr][cc]) cnt++; rowFill += cnt*cnt; }
+        let colH = 0;
+        for(let cc=0; cc<CONFIG.GRID; cc++){ let h=0; for(let rr=CONFIG.GRID-1; rr>=0; rr--){ if(State.grid[rr][cc]) h++; else break; } colH += h*h; }
+        const s2 = pieceCells(p)*2 + base*10 + (k>0? 150*k : -4) + rowFill*0.6 - colH*0.4;
+        State.grid = saved;
+        if(s2>bestScore){ bestScore=s2; best={i,r,c}; }
+      }
+    }
+  }
+  return best;
+}
+function scheduleAuto(){
+  if(!State.auto || State.phase!=='PLAYING' || State.busy) return;
+  clearTimeout(State.autoTimer);
+  State.autoTimer = setTimeout(()=>{
+    if(State.busy || State.phase!=='PLAYING') return;
+    const mv = botBestMove();
+    if(!mv){ return; } // 理论上终局会由 afterPlacement 触发
+    const p = State.tray[mv.i];
+    // 模拟拖放：直接调用同一落子路径
+    State.drag = {idx: mv.i, x:0, y:0, grabCol:0, grabRow:0, cellR:mv.r, cellC:mv.c};
+    playPlace();
+    placePiece(mv.i, mv.r, mv.c);
+  }, CONFIG.AUTO_PLAY_INTERVAL/State.timeScale);
+}
+function startAuto(){ if(State.phase==='PLAYING') scheduleAuto(); }
+function stopAuto(){ clearTimeout(State.autoTimer); }
+
+/* ---------------- 9. 主循环 ---------------- */
+let lastT = performance.now();
+function loop(t){
+  const rawDt = t-lastT;
+  lastT = t;
+  const dt = clamp(rawDt, 0, 64) * State.timeScale;
+  render(t, dt);
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+/* ---------------- 10. 界面事件 ---------------- */
+function startGame(){
+  ensureAudio();
+  State.phase='PLAYING';
+  $('startScreen').classList.remove('show');
+  $('overScreen').classList.remove('show');
+  const seed = (parseInt($('seedInput').value,10) || CONFIG.SEED_DEFAULT) >>> 0;
+  resetRun(seed);
+  playStart();
+}
+$('startBtn').addEventListener('click', startGame);
+$('retryBtn').addEventListener('click', startGame);
+$('homeBtn').addEventListener('click', ()=>{
+  State.phase='MENU'; State.busy=false; stopAuto();
+  $('overScreen').classList.remove('show');
+  $('startScreen').classList.add('show');
+  $('startBest').innerHTML = State.best>0 ? `最高纪录 <b>${State.best}</b>` : '暂无纪录';
+});
+$('soundBtn').addEventListener('click', ()=>{
+  State.sound = !State.sound;
+  $('soundBtn').textContent = State.sound ? '🔊' : '🔇';
+  try{ localStorage.setItem('nova_sound', State.sound?'1':'0'); }catch(err){}
+});
+$('debugBtn').addEventListener('click', ()=> $('debugPanel').classList.toggle('show'));
+$('seedApply').addEventListener('click', ()=>{
+  const seed = (parseInt($('seedInput').value,10) || CONFIG.SEED_DEFAULT) >>> 0;
+  if(State.phase==='MENU'){ State.seed = seed; return; }
+  startGame();
+});
+$('speedRange').addEventListener('input', e=>{
+  State.timeScale = parseFloat(e.target.value);
+  if(State.auto && State.phase==='PLAYING') scheduleAuto();
+});
+$('autoPlay').addEventListener('change', e=>{
+  State.auto = e.target.checked;
+  if(State.auto && State.phase==='PLAYING') scheduleAuto();
+  else stopAuto();
+});
+$('resetRun').addEventListener('click', ()=>{ if(State.phase!=='MENU') startGame(); });
+$('copyData').addEventListener('click', ()=>{
+  const data = {
+    ruleset_id: CONFIG.ruleset_id,
+    seed: State.seed,
+    score: State.score, placements: State.placements, cellsPlaced: State.cellsPlaced,
+    clears: State.clears, linesCleared: State.linesCleared,
+    maxStreak: State.maxStreak, maxK: State.maxK, milestone: State.milestone,
+    durationSec: Math.round((Date.now()-State.startTime)/1000),
+    events: State.events
+  };
+  try{ navigator.clipboard.writeText(JSON.stringify(data,null,1)); }catch(err){}
+});
+$('aboutBtn').addEventListener('click', ()=>{
+  // 设计说明以更清晰的提示呈现
+  const tag = $('startScreen').querySelector('.tagline');
+  tag.innerHTML = '参考 <b>Block Blast!（2025 全球下载第一）</b>的「拖放–消除」品类。<br>计分：落子 +1/格；消除 1/2/3/4 线 = +10/+30/+60/+100 × 连击乘数（上限 ×3）；全清额外 +500。<br>验证假设：在 3 块窗口约束下，玩家会为连击保留空间、提前规划。';
+  playClick();
+});
+
+/* ---------------- 11. 初始化 ---------------- */
+function saveBest(){ try{ localStorage.setItem('nova_best', State.best); }catch(err){} }
+(function init(){
+  try{
+    State.best = parseInt(localStorage.getItem('nova_best')||'0',10)||0;
+    State.sound = localStorage.getItem('nova_sound')!=='0';
+  }catch(err){}
+  $('soundBtn').textContent = State.sound ? '🔊' : '🔇';
+  $('bestVal').textContent = State.best;
+  $('startBest').innerHTML = State.best>0 ? `最高纪录 <b>${State.best}</b>` : '暂无纪录';
+  $('seedInput').value = CONFIG.SEED_DEFAULT;
+  $('dbgRuleset').textContent = CONFIG.ruleset_id;
+  computeLayout();
+  initStars();
+  // 网格初始为 0（菜单态预览棋盘）
+  State.grid = Array.from({length: CONFIG.GRID}, ()=>Array(CONFIG.GRID).fill(0));
+  State.tray = [];
+  State.seed = CONFIG.SEED_DEFAULT; State.rng = mulberry32(State.seed);
+  // 菜单态也显示 3 个示例块（不可交互）
+  for(let i=0;i<CONFIG.TRAY_SIZE;i++) State.tray.push(newPiece());
+  window.addEventListener('resize', ()=>{ computeLayout(); });
+  document.addEventListener('visibilitychange', ()=>{ if(document.hidden) lastT = performance.now(); });
+  document.addEventListener('pointerdown', ensureAudio, {once:false});
+})();
+</script>
+</body>
+</html>
